@@ -4,6 +4,7 @@ import os
 import subprocess
 import json
 
+
 def crop_and_validate_roi(image_path, roi_coords, edge_threshold=0.01):
     """
     裁剪固定ROI并验证车身位置。
