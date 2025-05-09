@@ -4,7 +4,6 @@ import os
 import subprocess
 import json
 
-
 def crop_and_validate_roi(image_path, roi_coords, edge_threshold=0.01):
     """
     裁剪固定ROI并验证车身位置。
@@ -90,38 +89,6 @@ def morphological_operations(image, small_hole_size=100, large_crack_size=500):
 
     return filtered.astype(np.uint8)
 
-def classify_defects(image, min_area=50, max_light_defect_area=500):
-    """
-    根据面积和形状特征分类瑕疵。
-
-    :param image: 输入二值图像
-    :param min_area: 最小保留区域面积
-    :param max_light_defect_area: 轻微瑕疵的最大面积
-    :return: 分类结果列表，每个元素为 (分类标签, 连通域轮廓)
-    """
-    # 连通域分析
-    contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    classified_defects = []
-
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        if area < min_area:
-            continue
-
-        # 根据面积分类
-        if area > max_light_defect_area:
-            label = "明显瑕疵"
-        else:
-            label = "轻微瑕疵"
-
-        classified_defects.append((label, contour))
-
-    # 如果没有瑕疵，标记为无瑕疵
-    if not classified_defects:
-        classified_defects.append(("无瑕疵", None))
-
-    return classified_defects
-
 def generate_labelme_annotations(image_folder, output_folder, min_area=50):
     """
     调用Labelme批量脚本生成标注，并过滤小面积区域。
@@ -157,64 +124,6 @@ def generate_labelme_annotations(image_folder, output_folder, min_area=50):
 
             with open(output_path, "w") as f:
                 json.dump(data, f, indent=4)
-
-        except Exception as e:
-            print(f"处理图像 {image_file} 时出错: {e}")
-
-def generate_labelme_annotations_with_classes(image_folder, output_folder, min_area=50, max_light_defect_area=500):
-    """
-    调用Labelme批量脚本生成标注，并为瑕疵区域添加分类标签。
-
-    :param image_folder: 输入图像文件夹
-    :param output_folder: 输出标注文件夹
-    :param min_area: 最小保留区域面积
-    :param max_light_defect_area: 轻微瑕疵的最大面积
-    """
-    os.makedirs(output_folder, exist_ok=True)
-
-    for image_file in os.listdir(image_folder):
-        image_path = os.path.join(image_folder, image_file)
-        output_path = os.path.join(output_folder, os.path.splitext(image_file)[0] + ".json")
-
-        try:
-            # 读取图像
-            image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-            if image is None:
-                print(f"无法读取图像: {image_file}")
-                continue
-
-            # 分类瑕疵
-            classified_defects = classify_defects(image, min_area, max_light_defect_area)
-
-            # 构建Labelme标注数据
-            shapes = []
-            for label, contour in classified_defects:
-                if contour is not None:
-                    points = contour.squeeze().tolist()
-                else:
-                    points = []
-
-                shapes.append({
-                    "label": label,
-                    "points": points,
-                    "group_id": None,
-                    "shape_type": "polygon",
-                    "flags": {}
-                })
-
-            annotation_data = {
-                "version": "4.5.6",
-                "flags": {},
-                "shapes": shapes,
-                "imagePath": image_file,
-                "imageData": None,
-                "imageHeight": image.shape[0],
-                "imageWidth": image.shape[1]
-            }
-
-            # 保存标注文件
-            with open(output_path, "w") as f:
-                json.dump(annotation_data, f, indent=4)
 
         except Exception as e:
             print(f"处理图像 {image_file} 时出错: {e}")
@@ -286,8 +195,3 @@ if __name__ == "__main__":
     morphed_folder = "morphed_images"
     annotations_folder = "annotations"
     generate_labelme_annotations(morphed_folder, annotations_folder)
-
-    # 生成带分类的标注
-    morphed_folder = "morphed_images"
-    annotations_folder_classes = "annotations_with_classes"
-    generate_labelme_annotations_with_classes(morphed_folder, annotations_folder_classes)
