@@ -1,0 +1,292 @@
+import cv2
+import numpy as np
+import os
+import subprocess
+import json
+
+def crop_and_validate_roi(image_path, roi_coords, edge_threshold=0.01):
+    """
+    裁剪固定ROI并验证车身位置。
+
+    :param image_path: 图像路径
+    :param roi_coords: ROI区域坐标 (x, y, w, h)
+    :param edge_threshold: 边缘偏移阈值，默认1%
+    :return: 裁剪后的图像，是否触发报警
+    """
+    # 读取图像
+    image = cv2.imread(image_path)
+    if image is None:
+        raise FileNotFoundError(f"无法读取图像: {image_path}")
+
+    # 裁剪ROI区域
+    x, y, w, h = roi_coords
+    cropped_image = image[y:y+h, x:x+w]
+
+    # 边缘检测
+    gray = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 100, 200)
+
+    # 计算边缘占比
+    edge_pixels = np.sum(edges > 0)
+    total_pixels = edges.size
+    edge_ratio = edge_pixels / total_pixels
+
+    # 判断是否超出阈值
+    alarm = edge_ratio > edge_threshold
+
+    return cropped_image, alarm
+
+def filter_by_color_space(image, color_type):
+    """
+    多颜色空间融合过滤。
+
+    :param image: 输入图像
+    :param color_type: 车漆类型（"black", "white", "red"）
+    :return: 过滤后的二值图像
+    """
+    # 转换到HSV和Lab颜色空间
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2Lab)
+
+    # CLAHE增强亮度
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+
+    # 定义阈值范围
+    if color_type == "black":
+        mask = cv2.inRange(hsv, (0, 0, 0), (180, 255, 50))
+    elif color_type == "white":
+        mask = cv2.inRange(hsv, (0, 0, 200), (180, 30, 255))
+    elif color_type == "red":
+        lower_red1 = cv2.inRange(hsv, (0, 50, 50), (10, 255, 255))
+        lower_red2 = cv2.inRange(hsv, (170, 50, 50), (180, 255, 255))
+        mask = cv2.bitwise_or(lower_red1, lower_red2)
+    else:
+        raise ValueError("未知的车漆类型")
+
+    # 返回二值图像
+    return mask
+
+def morphological_operations(image, small_hole_size=100, large_crack_size=500):
+    """
+    形态学闭运算，去除噪声并保留划痕区域。
+
+    :param image: 输入二值图像
+    :param small_hole_size: 小孔洞面积阈值
+    :param large_crack_size: 大断裂面积阈值
+    :return: 处理后的图像
+    """
+    # 小核开运算去除小噪声
+    kernel_small = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    opened = cv2.morphologyEx(image, cv2.MORPH_OPEN, kernel_small)
+
+    # 大核闭运算填补大断裂
+    kernel_large = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+    closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel_large)
+
+    # 各向异性扩散滤波
+    filtered = cv2.ximgproc.anisotropicDiffusion(closed.astype(np.float32), alpha=0.5, K=50, niters=10)
+
+    return filtered.astype(np.uint8)
+
+def classify_defects(image, min_area=50, max_light_defect_area=500):
+    """
+    根据面积和形状特征分类瑕疵。
+
+    :param image: 输入二值图像
+    :param min_area: 最小保留区域面积
+    :param max_light_defect_area: 轻微瑕疵的最大面积
+    :return: 分类结果列表，每个元素为 (分类标签, 连通域轮廓)
+    """
+    # 连通域分析
+    contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    classified_defects = []
+
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area < min_area:
+            continue
+
+        # 根据面积分类
+        if area > max_light_defect_area:
+            label = "明显瑕疵"
+        else:
+            label = "轻微瑕疵"
+
+        classified_defects.append((label, contour))
+
+    # 如果没有瑕疵，标记为无瑕疵
+    if not classified_defects:
+        classified_defects.append(("无瑕疵", None))
+
+    return classified_defects
+
+def generate_labelme_annotations(image_folder, output_folder, min_area=50):
+    """
+    调用Labelme批量脚本生成标注，并过滤小面积区域。
+
+    :param image_folder: 输入图像文件夹
+    :param output_folder: 输出标注文件夹
+    :param min_area: 最小保留区域面积，默认50像素
+    """
+    os.makedirs(output_folder, exist_ok=True)
+
+    for image_file in os.listdir(image_folder):
+        image_path = os.path.join(image_folder, image_file)
+        output_path = os.path.join(output_folder, os.path.splitext(image_file)[0] + ".json")
+
+        # 调用Labelme的img2json.py脚本
+        try:
+            subprocess.run([
+                "labelme_json", image_path, "-o", output_path
+            ], check=True)
+
+            # 过滤小面积区域
+            with open(output_path, "r") as f:
+                data = json.load(f)
+
+            filtered_shapes = []
+            for shape in data.get("shapes", []):
+                points = np.array(shape["points"], dtype=np.int32)
+                area = cv2.contourArea(points)
+                if area >= min_area:
+                    filtered_shapes.append(shape)
+
+            data["shapes"] = filtered_shapes
+
+            with open(output_path, "w") as f:
+                json.dump(data, f, indent=4)
+
+        except Exception as e:
+            print(f"处理图像 {image_file} 时出错: {e}")
+
+def generate_labelme_annotations_with_classes(image_folder, output_folder, min_area=50, max_light_defect_area=500):
+    """
+    调用Labelme批量脚本生成标注，并为瑕疵区域添加分类标签。
+
+    :param image_folder: 输入图像文件夹
+    :param output_folder: 输出标注文件夹
+    :param min_area: 最小保留区域面积
+    :param max_light_defect_area: 轻微瑕疵的最大面积
+    """
+    os.makedirs(output_folder, exist_ok=True)
+
+    for image_file in os.listdir(image_folder):
+        image_path = os.path.join(image_folder, image_file)
+        output_path = os.path.join(output_folder, os.path.splitext(image_file)[0] + ".json")
+
+        try:
+            # 读取图像
+            image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            if image is None:
+                print(f"无法读取图像: {image_file}")
+                continue
+
+            # 分类瑕疵
+            classified_defects = classify_defects(image, min_area, max_light_defect_area)
+
+            # 构建Labelme标注数据
+            shapes = []
+            for label, contour in classified_defects:
+                if contour is not None:
+                    points = contour.squeeze().tolist()
+                else:
+                    points = []
+
+                shapes.append({
+                    "label": label,
+                    "points": points,
+                    "group_id": None,
+                    "shape_type": "polygon",
+                    "flags": {}
+                })
+
+            annotation_data = {
+                "version": "4.5.6",
+                "flags": {},
+                "shapes": shapes,
+                "imagePath": image_file,
+                "imageData": None,
+                "imageHeight": image.shape[0],
+                "imageWidth": image.shape[1]
+            }
+
+            # 保存标注文件
+            with open(output_path, "w") as f:
+                json.dump(annotation_data, f, indent=4)
+
+        except Exception as e:
+            print(f"处理图像 {image_file} 时出错: {e}")
+
+# 示例使用
+if __name__ == "__main__":
+    # 定义固定ROI区域 (x, y, w, h)
+    roi_coords = (100, 200, 1400, 2000)  # 示例坐标
+
+    # 图像文件夹路径
+    image_folder = "path_to_images"
+
+    for image_file in os.listdir(image_folder):
+        image_path = os.path.join(image_folder, image_file)
+        try:
+            cropped_image, alarm = crop_and_validate_roi(image_path, roi_coords)
+            if alarm:
+                print(f"图像 {image_file} 触发报警，需人工校准。")
+            else:
+                print(f"图像 {image_file} 裁剪完成，无需校准。")
+
+            # 保存裁剪后的图像
+            output_path = os.path.join("cropped_images", image_file)
+            os.makedirs("cropped_images", exist_ok=True)
+            cv2.imwrite(output_path, cropped_image)
+        except Exception as e:
+            print(f"处理图像 {image_file} 时出错: {e}")
+
+    # 读取裁剪后的图像
+    cropped_folder = "cropped_images"
+    filtered_folder = "filtered_images"
+    os.makedirs(filtered_folder, exist_ok=True)
+
+    for cropped_file in os.listdir(cropped_folder):
+        cropped_path = os.path.join(cropped_folder, cropped_file)
+        image = cv2.imread(cropped_path)
+
+        if image is None:
+            print(f"无法读取图像: {cropped_file}")
+            continue
+
+        # 针对不同车漆类型进行过滤
+        for color_type in ["black", "white", "red"]:
+            mask = filter_by_color_space(image, color_type)
+            output_path = os.path.join(filtered_folder, f"{os.path.splitext(cropped_file)[0]}_{color_type}.png")
+            cv2.imwrite(output_path, mask)
+
+    # 读取过滤后的图像
+    filtered_folder = "filtered_images"
+    morphed_folder = "morphed_images"
+    os.makedirs(morphed_folder, exist_ok=True)
+
+    for filtered_file in os.listdir(filtered_folder):
+        filtered_path = os.path.join(filtered_folder, filtered_file)
+        image = cv2.imread(filtered_path, cv2.IMREAD_GRAYSCALE)
+
+        if image is None:
+            print(f"无法读取图像: {filtered_file}")
+            continue
+
+        # 形态学处理
+        morphed_image = morphological_operations(image)
+
+        # 保存处理后的图像
+        output_path = os.path.join(morphed_folder, filtered_file)
+        cv2.imwrite(output_path, morphed_image)
+
+    # 生成标注
+    morphed_folder = "morphed_images"
+    annotations_folder = "annotations"
+    generate_labelme_annotations(morphed_folder, annotations_folder)
+
+    # 生成带分类的标注
+    morphed_folder = "morphed_images"
+    annotations_folder_classes = "annotations_with_classes"
+    generate_labelme_annotations_with_classes(morphed_folder, annotations_folder_classes)
