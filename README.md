@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png"><br/>Template Repo
+  <img src="https://pics0.baidu.com/feed/77c6a7efce1b9d161a1915717f30d5838d54643b.jpeg"><br/>Template Repo
 </h1>
 
 <h4 align="center">
