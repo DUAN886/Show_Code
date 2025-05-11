@@ -11,10 +11,8 @@
 </h4>
 
 <div align="center">
-  <a href="https://github.com/DUAN886/Show_Code"><img src="https://img.shields.io/conda/pn/conda-forge/labelme?color=green&label=KuRRe8"></a>
+  <a href="https://github.com/DUAN886/Show_Code"><img src="https://img.shields.io/conda/pn/conda-forge/labelme?color=green&label=DUAN886></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.9%7C3.10%7C3.11%7C3.12-lightblue"></a>
-  <a href="https://github.com/DUAN886/Show_Code"><img src="https://img.shields.io/badge/Version-1.0-blue"></a>
-  <a href="https://github.com/DUAN886/Show_Code"><img src="https://img.shields.io/badge/code%20quality-A%2B-lightyellow"></a>
 </div>
 
 <div align="center">
