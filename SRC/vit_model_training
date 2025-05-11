@@ -1,0 +1,217 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torchvision import transforms
+from timm import create_model
+from torchvision.transforms import Compose, RandomRotation, ColorJitter, CenterCrop
+
+def train_vit_model(model_name, train_loader, val_loader, num_classes, device):
+    """
+    训练ViT模型。
+
+    :param model_name: ViT模型名称
+    :param train_loader: 训练数据加载器
+    :param val_loader: 验证数据加载器
+    :param num_classes: 类别数量
+    :param device: 设备
+    """
+    # 创建模型
+    model = create_model(model_name, pretrained=True, num_classes=num_classes)
+    model.to(device)
+
+    # 定义损失函数和优化器
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+
+    # 训练循环
+    for epoch in range(10):  # 示例：10个epoch
+        model.train()
+        for images, labels in train_loader:
+            images, labels = images.to(device), labels.to(device)
+
+            # 前向传播
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+            # 反向传播和优化
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        # 验证
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for images, labels in val_loader:
+                images, labels = images.to(device), labels.to(device)
+                outputs = model(images)
+                val_loss += criterion(outputs, labels).item()
+
+        print(f"Epoch {epoch + 1}, Validation Loss: {val_loss / len(val_loader)}")
+
+    return model
+
+# 定义3个差异化初始化的ViT模型
+vit_configs = [
+    {"pretrained": "vit_base_patch16_224", "img_size": 256, "drop_rate": 0.1},
+    {"pretrained": "vit_large_patch16_224", "img_size": 256, "drop_rate": 0.2},
+    {"pretrained": "vit_small_patch16_224", "img_size": 256, "drop_rate": 0.3}
+]
+
+vit_models = [
+    create_model(
+        cfg["pretrained"],
+        pretrained=True,
+        img_size=cfg["img_size"],
+        drop_rate=cfg["drop_rate"]
+    )
+    for cfg in vit_configs
+]
+
+# 定义差异化数据增强策略
+def get_augmentation_strategy(model_type):
+    if model_type == "vit_base_patch16_224":
+        return Compose([
+            RandomRotation(degrees=15),
+            ColorJitter(brightness=0.2, contrast=0.2)
+        ])
+    elif model_type == "vit_large_patch16_224":
+        return Compose([
+            CenterCrop(size=224),  # 替代 RandomCrop
+            ColorJitter(hue=0.1)  # 替代 GaussianBlur
+        ])
+    elif model_type == "vit_small_patch16_224":
+        return Compose([
+            RandomRotation(degrees=10),  # 替代 CutOut
+            ColorJitter(saturation=0.2)  # 替代 MixUp
+        ])
+    else:
+        raise ValueError("未知的模型类型")
+
+# 跨模型特征对齐
+def cross_model_feature_alignment(features_list):
+    """
+    使用多头注意力机制对齐不同模型的特征。
+
+    :param features_list: 各ViT模型的特征列表 [B, N, D]
+    :return: 对齐后的特征表示 [B, N, D]
+    """
+    query = features_list[0]  # 以第一个模型的特征作为Query
+    keys_values = torch.cat(features_list[1:], dim=1)  # 其他模型的特征作为Key和Value
+
+    # 计算注意力权重
+    attention_weights = F.softmax(torch.matmul(query, keys_values.transpose(-2, -1)), dim=-1)
+
+    # 生成对齐后的特征
+    aligned_features = torch.matmul(attention_weights, keys_values)
+    return aligned_features
+
+# 空间关系重建
+def spatial_relationship_reconstruction(patch_features, grid_size=(4, 4)):
+    """
+    重建Patch特征的空间关系。
+
+    :param patch_features: Patch特征 [B, N, D]
+    :param grid_size: 网格大小 (rows, cols)
+    :return: 重建后的全局特征
+    """
+    B, N, D = patch_features.shape
+    rows, cols = grid_size
+
+    # 将Patch特征重新排列为网格结构
+    grid_features = patch_features.view(B, rows, cols, D)
+
+    # 水平卷积
+    horizontal_features = F.conv2d(grid_features, weight=torch.ones(1, 1, 1, 4).to(grid_features.device))
+
+    # 垂直卷积
+    vertical_features = F.conv2d(grid_features, weight=torch.ones(1, 1, 4, 1).to(grid_features.device))
+
+    # 合并水平和垂直特征
+    global_features = horizontal_features + vertical_features
+    return global_features
+
+# 置信度加权投票
+def confidence_weighted_voting(predictions, confidences):
+    """
+    置信度加权投票。
+
+    :param predictions: 各模型的预测结果 [M, B, N, C] (模型数, 批量大小, Patch数, 类别数)
+    :param confidences: 各模型的置信度 [M, B, N]
+    :return: 加权融合后的预测结果 [B, N, C]
+    """
+    # 计算模型权重
+    weights = torch.softmax(confidences.mean(dim=(1, 2)), dim=0)  # [M]
+
+    # 加权融合
+    weighted_predictions = torch.stack([
+        weights[i] * predictions[i] for i in range(len(predictions))
+    ], dim=0).sum(dim=0)  # [B, N, C]
+
+    return weighted_predictions
+
+def multi_granularity_decision_fusion(patch_predictions, spatial_matrix):
+    """
+    多粒度决策融合。
+
+    :param patch_predictions: Patch级预测结果 [B, N, C]
+    :param spatial_matrix: 空间关联矩阵 [B, N, N]
+    :return: 全局级预测结果 [B, C]
+    """
+    # 区域级融合：基于空间关联矩阵加权融合
+    region_predictions = torch.matmul(spatial_matrix, patch_predictions)  # [B, N, C]
+
+    # 全局级融合：自适应注意力池化
+    global_predictions = torch.mean(region_predictions, dim=1)  # [B, C]
+
+    return global_predictions
+
+augmentation_strategies = {
+    cfg["pretrained"]: get_augmentation_strategy(cfg["pretrained"])
+    for cfg in vit_configs
+}
+
+if __name__ == "__main__":
+    # 数据加载器
+    train_loader = None  # 替换为实际数据加载器
+    val_loader = None  # 替换为实际数据加载器
+
+    # 训练ViT模型
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = train_vit_model("vit_base_patch16_224", train_loader, val_loader, num_classes=7, device=device)
+
+    # 假设有3个ViT模型的特征输出
+    features_vit_base = torch.randn(8, 16, 768)  # 示例特征 [B, N, D]
+    features_vit_large = torch.randn(8, 16, 1024)
+    features_vit_small = torch.randn(8, 16, 512)
+
+    # 跨模型特征对齐
+    aligned_features = cross_model_feature_alignment([features_vit_base, features_vit_large, features_vit_small])
+    print("对齐后的特征形状:", aligned_features.shape)
+
+    # 空间关系重建
+    global_features = spatial_relationship_reconstruction(aligned_features, grid_size=(4, 4))
+    print("重建后的全局特征形状:", global_features.shape)
+
+    # 假设有3个模型的预测结果和置信度
+    predictions = [
+        torch.randn(8, 16, 7),  # 模型1的预测 [B, N, C]
+        torch.randn(8, 16, 7),  # 模型2的预测
+        torch.randn(8, 16, 7)   # 模型3的预测
+    ]
+    confidences = [
+        torch.rand(8, 16),  # 模型1的置信度 [B, N]
+        torch.rand(8, 16),  # 模型2的置信度
+        torch.rand(8, 16)   # 模型3的置信度
+    ]
+
+    # 置信度加权投票
+    fused_predictions = confidence_weighted_voting(predictions, confidences)
+    print("加权融合后的预测形状:", fused_predictions.shape)
+
+    # 空间关联矩阵 (示例)
+    spatial_matrix = torch.rand(8, 16, 16)  # [B, N, N]
+
+    # 多粒度决策融合
+    global_predictions = multi_granularity_decision_fusion(fused_predictions, spatial_matrix)
+    print("全局级预测形状:", global_predictions.shape)
