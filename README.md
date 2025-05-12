@@ -19,10 +19,9 @@
     <a href="#introduction"><b>introduction</b></a> |
     <a href="#file-description"><b>File description</b></a> |
     <a href="#usage"><b>usage</b></a> |
-    <a href="#discussion"><b>discussion</b></a> |
-    <a href="#code-of-conduct"><b>code of conduct</b></a> |
-    <a href="#demos"><b>demos</b></a>
+
 </div>
+
 
 ## Introduction
 
@@ -32,7 +31,16 @@ Using machine learning to automatically detect surface defects in car paint, the
 
 - [x] [src](/src/)-->Source code
 - [x] [README](/README.md)-->Readme file
-  
+
+## Core Features
+Intelligent ROI Cropping: Automatically locates vehicle body regions with edge deviation alerts
+Multi-Color Space Fusion: Specialized filtering algorithms for black/white/red paint finishes
+Morphology Enhancement: Adaptive noise removal while preserving fine scratches
+Dual-Model Collaborative Detection:
+Vision Transformer classification model (3 differentiated configurations)
+Mask R-CNN instance segmentation model (fine-tuned from COCO pre-trained weights)
+Cross-Model Feature Fusion: Multi-head attention mechanism enables multi-granularity decision-making
+
 ## Usage
 
 In your conda distribution(anaconda/ miniconda/ miniforge):
