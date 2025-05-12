@@ -33,13 +33,13 @@ Using machine learning to automatically detect surface defects in car paint, the
 - [x] [README](/README.md)-->Readme file
 
 ## Core Features
-Intelligent ROI Cropping: Automatically locates vehicle body regions with edge deviation alerts
-Multi-Color Space Fusion: Specialized filtering algorithms for black/white/red paint finishes
-Morphology Enhancement: Adaptive noise removal while preserving fine scratches
-Dual-Model Collaborative Detection:
-Vision Transformer classification model (3 differentiated configurations)
-Mask R-CNN instance segmentation model (fine-tuned from COCO pre-trained weights)
-Cross-Model Feature Fusion: Multi-head attention mechanism enables multi-granularity decision-making
+- Intelligent ROI Cropping: Automatically locates vehicle body regions with edge deviation alerts
+- Multi-Color Space Fusion: Specialized filtering algorithms for black/white/red paint finishes
+- Morphology Enhancement: Adaptive noise removal while preserving fine scratches
+- Dual-Model Collaborative Detection:
+- Vision Transformer classification model (3 differentiated configurations)
+- Mask R-CNN instance segmentation model (fine-tuned from COCO pre-trained weights)
+- Cross-Model Feature Fusion: Multi-head attention mechanism enables multi-granularity decision-making
 
 ## Usage
 
