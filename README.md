@@ -34,8 +34,8 @@ Using machine learning to automatically detect surface defects in car paint, the
 - Multi-Color Space Fusion: Specialized filtering algorithms for black/white/red paint finishes
 - Morphology Enhancement: Adaptive noise removal while preserving fine scratches
 - Dual-Model Collaborative Detection:
-- Vision Transformer classification model (3 differentiated configurations)
 - Mask R-CNN instance segmentation model (fine-tuned from COCO pre-trained weights)
+- Vision Transformer classification model (3 differentiated configurations)
 - Cross-Model Feature Fusion: Multi-head attention mechanism enables multi-granularity decision-making
 
 ## Usage
