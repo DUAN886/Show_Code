@@ -1,0 +1,8 @@
+torch==1.10.0+cu113
+torchvision==0.11.1+cu113
+timm==0.6.7
+opencv-contrib-python==4.5.5.64
+numpy==1.21.6
+pycocotools==2.0.6
+labelme==5.2.1
+detectron2 @ https://dl.fbaipublicfiles.com/detectron2/wheels/cu113/torch1.10/detectron2-0.6%2Bcu113-cp38-cp38-linux_x86_64.whl
