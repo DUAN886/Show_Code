@@ -1,7 +1,3 @@
-<h1 align="center">
-  <img src="https://pics0.baidu.com/feed/77c6a7efce1b9d161a1915717f30d5838d54643b.jpeg"><br/>Show_Code
-</h1>
-
 <h4 align="center">
   DUAN886
 </h4>
