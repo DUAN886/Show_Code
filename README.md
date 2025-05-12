@@ -18,7 +18,7 @@
 <div align="center">
     <a href="#introduction"><b>introduction</b></a> |
     <a href="#file-description"><b>File description</b></a> |
-    <a href="#Core-Features"><b>Core Features</b></a> |
+    <a href="#core-features"><b>Core Features</b></a> |
     <a href="#usage"><b>usage</b></a>
 
 </div>
