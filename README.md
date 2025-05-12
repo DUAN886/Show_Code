@@ -26,7 +26,7 @@ Using machine learning to automatically detect surface defects in car paint, the
 
 ## File description
 
-- [x] [src](/src/)-->Source code
+- [x] [SRC](/SRC/)-->Source code
 - [x] [README](/README.md)-->Readme file
 
 ## Core Features
